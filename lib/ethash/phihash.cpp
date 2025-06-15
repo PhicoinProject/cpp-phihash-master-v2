@@ -94,31 +94,26 @@ mix_rng_state::mix_rng_state(uint32_t* hash_seed) noexcept
 NO_SANITIZE("unsigned-integer-overflow")
 inline uint32_t random_math(uint32_t a, uint32_t b, uint32_t selector) noexcept
 {
-    switch (selector % 11)
+    // GPU-optimized operations - all operations are 1-3 cycles on modern GPUs
+    switch (selector % 8)  // Reduced from 11 to 8 GPU-friendly operations
     {
     default:
     case 0:
-        return a + b;
+        return a + b;                    // IADD - 1 cycle
     case 1:
-        return a * b;
+        return a * ((b & 0xFFFF) | 1);  // IMUL - 2-3 cycles, avoid zero multiplication
     case 2:
-        return mul_hi32(a, b);
+        return (a < b) ? a : b;         // Conditional selection - 1-2 cycles
     case 3:
-        return std::min(a, b);
+        return a & b;                   // LOP32I.AND - 1 cycle
     case 4:
-        return rotl32(a, b);
+        return a | b;                   // LOP32I.OR - 1 cycle
     case 5:
-        return rotr32(a, b);
+        return a ^ b;                   // LOP32I.XOR - 1 cycle
     case 6:
-        return a & b;
+        return a + (b << 1);            // Shift + Add - 2 cycles
     case 7:
-        return a | b;
-    case 8:
-        return a ^ b;
-    case 9:
-        return clz32(a) + clz32(b);
-    case 10:
-        return popcount32(a) + popcount32(b);
+        return a ^ (b + 1);             // Add + XOR - 2 cycles
     }
 }
 
@@ -130,19 +125,20 @@ NO_SANITIZE("unsigned-integer-overflow")
 inline void random_merge(uint32_t& a, uint32_t b, uint32_t selector) noexcept
 {
     const auto x = (selector >> 16) % 31 + 1;  // Additional non-zero selector from higher bits.
+    // All operations balanced to ~2 cycles for GPU efficiency
     switch (selector % 4)
     {
     case 0:
-        a = (a * 33) + b;
+        a = (a + b) ^ (a >> x);         // Add + Shift + XOR - 2 cycles
         break;
     case 1:
-        a = (a ^ b) * 33;
+        a = (a ^ b) + (b << x);         // XOR + Shift + Add - 2 cycles
         break;
     case 2:
-        a = rotl32(a, x) ^ b;
+        a = rotl32(a, x) ^ b;           // Rotate + XOR - 2 cycles
         break;
     case 3:
-        a = rotr32(a, x) ^ b;
+        a = rotr32(a, x) ^ b;           // Rotate + XOR - 2 cycles
         break;
     }
 }
