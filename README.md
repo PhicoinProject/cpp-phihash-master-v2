@@ -25,7 +25,7 @@ PhiHash is an advanced proof-of-work mining algorithm specifically designed for 
 | **Hash Function** | Keccak-256 | Primary cryptographic hash |
 | **DAG Generation** | Ethash-based | Directed Acyclic Graph construction |
 | **Cache Size** | 64MB | Light client cache size |
-| **Epoch Length** | 30,000 blocks | Period between difficulty adjustments |
+| **Epoch Length** | 2102400 blocks | Period between difficulty adjustments |
 
 ## Huang's Law Integration
 
@@ -152,12 +152,6 @@ print(f"Mix hash: {result.mix_hash.hex()}")
 3. **Random Access Patterns**: Unpredictable memory access defeats specialized circuits
 4. **GPU Advantage**: Algorithm designed to leverage GPU parallel architecture
 
-### Economic Analysis
-
-| Hardware | Development Cost | Lifespan | ROI Risk |
-|----------|-----------------|----------|----------|
-| **GPU** | $500-2000 | 3-5 years | Low |
-| **ASIC** | $10M-100M+ | 1-2 years | Very High |
 
 ## Security Features
 
@@ -171,8 +165,7 @@ print(f"Mix hash: {result.mix_hash.hex()}")
 - [x] **v1.0**: Initial PhiHash implementation
 - [x] **v2.0**: Huang's Law integration  
 - [ ] **v2.1**: Performance optimizations
-- [ ] **v3.0**: Advanced ASIC resistance features
-- [ ] **v4.0**: Post-quantum cryptography integration
+
 
 ## Contributing
 
