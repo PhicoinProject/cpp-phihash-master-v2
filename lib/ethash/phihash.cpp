@@ -90,46 +90,36 @@ mix_rng_state::mix_rng_state(uint32_t* hash_seed) noexcept
 }
 
 
+
 NO_SANITIZE("unsigned-integer-overflow")
 inline uint32_t random_math(uint32_t a, uint32_t b, uint32_t selector) noexcept
 {
-    using MathOp = uint32_t(*)(uint32_t, uint32_t);
-   
-    auto add = [](uint32_t x, uint32_t y) { return x + y; };
-    auto multiply = [](uint32_t x, uint32_t y) { return x * y; };
-    auto subtract = [](uint32_t x, uint32_t y) { return x - y; };
-    auto min_op = [](uint32_t x, uint32_t y) { return std::min(x, y); };
-    auto max_op = [](uint32_t x, uint32_t y) { return std::max(x, y); };
-    auto rotl = [](uint32_t x, uint32_t y) { return rotl32(x, y & 31); };
-    auto rotr = [](uint32_t x, uint32_t y) { return rotr32(x, y & 31); };
-    auto bitwise_and = [](uint32_t x, uint32_t y) { return x & y; };
-    auto bitwise_or = [](uint32_t x, uint32_t y) { return x | y; };
-    auto bitwise_xor = [](uint32_t x, uint32_t y) { return x ^ y; };
-
-    auto tanh = [](uint32_t x, uint32_t y) {
-        constexpr float PHI = 0.61803398875f;
-        float sum = static_cast<float>(x) + static_cast<float>(y);
-        float result = std::tanh(sum * PHI);
-        float frac_part = result - std::floor(result);
-        return static_cast<uint32_t>(frac_part * (1ULL << 32));
-    };
-
-    static const MathOp operations[] = {
-        add,                // case 0
-        multiply,           // case 1
-        subtract,           // case 2
-        min_op,             // case 3
-        max_op,             // case 4
-        rotl,               // case 5
-        rotr,               // case 6
-        bitwise_and,        // case 7
-        bitwise_or,         // case 8
-        bitwise_xor,        // case 9
-        tanh                // case 10
-    };
-
-    uint32_t op_index = selector % 11; 
-    return operations[op_index](a, b);
+    switch (selector % 11)
+    {
+    default:
+    case 0:
+        return a + b;
+    case 1:
+        return a * b;
+    case 2:
+        return mul_hi32(a, b);
+    case 3:
+        return std::min(a, b);
+    case 4:
+        return rotl32(a, b);
+    case 5:
+        return rotr32(a, b);
+    case 6:
+        return a & b;
+    case 7:
+        return a | b;
+    case 8:
+        return a ^ b;
+    case 9:
+        return clz32(a) + clz32(b);
+    case 10:
+        return popcount32(a) + popcount32(b);
+    }
 }
 
 
