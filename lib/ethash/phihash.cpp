@@ -3,13 +3,11 @@
 // Licensed under the Apache License, Version 2.0.
 
 #include <ethash/phihash.hpp>
-#include <limits>
-#include <cmath>
+
 #include "bit_manipulation.h"
 #include "endianness.hpp"
 #include "ethash-internal.hpp"
-// #include "kiss99.hpp"
-#include "pcg32.hpp"
+#include "kiss99.hpp"
 #include "../../test/unittests/helpers.hpp"
 #include <ethash/keccak.hpp>
 
@@ -54,7 +52,7 @@ public:
     uint32_t next_dst() noexcept { return dst_seq[(dst_counter++) % num_regs]; }
     uint32_t next_src() noexcept { return src_seq[(src_counter++) % num_regs]; }
 
-    pcg32 rng;
+    kiss99 rng;
 
 private:
     size_t dst_counter = 0;
@@ -64,15 +62,16 @@ private:
 };
 
 mix_rng_state::mix_rng_state(uint32_t* hash_seed) noexcept
-    : rng{0, 0} 
 {
     const auto seed_lo = static_cast<uint32_t>(hash_seed[0]);
     const auto seed_hi = static_cast<uint32_t>(hash_seed[1]);
 
     const auto z = fnv1a(fnv_offset_basis, seed_lo);
     const auto w = fnv1a(z, seed_hi);
+    const auto jsr = fnv1a(w, seed_lo);
+    const auto jcong = fnv1a(jsr, seed_hi);
 
-    rng = pcg32{z, w};
+    rng = kiss99{z, w, jsr, jcong};
 
     // Create random permutations of mix destinations / sources.
     // Uses Fisher-Yates shuffle.
@@ -94,29 +93,33 @@ mix_rng_state::mix_rng_state(uint32_t* hash_seed) noexcept
 NO_SANITIZE("unsigned-integer-overflow")
 inline uint32_t random_math(uint32_t a, uint32_t b, uint32_t selector) noexcept
 {
-    // GPU-optimized operations - all operations are 1-3 cycles on modern GPUs
-    switch (selector % 8)  // Reduced from 11 to 8 GPU-friendly operations
+    switch (selector % 11)
     {
     default:
     case 0:
-        return a + b;                    // IADD - 1 cycle
+        return a + b;
     case 1:
-        return a * ((b & 0xFFFF) | 1);  // IMUL - 2-3 cycles, avoid zero multiplication
+        return a * b;
     case 2:
-        return (a < b) ? a : b;         // Conditional selection - 1-2 cycles
+        return mul_hi32(a, b);
     case 3:
-        return a & b;                   // LOP32I.AND - 1 cycle
+        return std::min(a, b);
     case 4:
-        return a | b;                   // LOP32I.OR - 1 cycle
+        return rotl32(a, b);
     case 5:
-        return a ^ b;                   // LOP32I.XOR - 1 cycle
+        return rotr32(a, b);
     case 6:
-        return a + (b << 1);            // Shift + Add - 2 cycles
+        return a & b;
     case 7:
-        return a ^ (b + 1);             // Add + XOR - 2 cycles
+        return a | b;
+    case 8:
+        return a ^ b;
+    case 9:
+        return clz32(a) + clz32(b);
+    case 10:
+        return popcount32(a) + popcount32(b);
     }
 }
-
 
 /// Merge data from `b` and `a`.
 /// Assuming `a` has high entropy, only do ops that retain entropy even if `b`
@@ -125,20 +128,19 @@ NO_SANITIZE("unsigned-integer-overflow")
 inline void random_merge(uint32_t& a, uint32_t b, uint32_t selector) noexcept
 {
     const auto x = (selector >> 16) % 31 + 1;  // Additional non-zero selector from higher bits.
-    // All operations balanced to ~2 cycles for GPU efficiency
     switch (selector % 4)
     {
     case 0:
-        a = (a + b) ^ (a >> x);         // Add + Shift + XOR - 2 cycles
+        a = (a * 33) + b;
         break;
     case 1:
-        a = (a ^ b) + (b << x);         // XOR + Shift + Add - 2 cycles
+        a = (a ^ b) * 33;
         break;
     case 2:
-        a = rotl32(a, x) ^ b;           // Rotate + XOR - 2 cycles
+        a = rotl32(a, x) ^ b;
         break;
     case 3:
-        a = rotr32(a, x) ^ b;           // Rotate + XOR - 2 cycles
+        a = rotr32(a, x) ^ b;
         break;
     }
 }
@@ -242,13 +244,16 @@ mix_array init_mix(uint32_t* hash_seed)
     mix_array mix;
     for (uint32_t l = 0; l < mix.size(); ++l)
     {
-        pcg32 rng{z, w};
+        const uint32_t jsr = fnv1a(w, l);
+        const uint32_t jcong = fnv1a(jsr, l);
+        kiss99 rng{z, w, jsr, jcong};
 
         for (auto& row : mix[l])
             row = rng();
     }
     return mix;
 }
+
 hash256 hash_mix(
     const epoch_context& context, int block_number, uint32_t * seed, lookup_fn lookup) noexcept
 {
